@@ -27,6 +27,12 @@ OPENOCD_TARGET    ?= target/stm32f4x_stlink.cfg
 USE_FPU           ?= 1
 endif
 
+## Flag that can be added to config.mk
+# CFLAGS += -DUSE_UART_CRTP        # Set CRTP link to UART
+# CFLAGS += -DUSE_ESKYLINK         # Set CRTP link to E-SKY receiver
+CFLAGS += -DENABLE_UART          # To enable the uart
+# CFLAGS += -DDEBUG_PRINT_ON_UART  # Redirect the console output to the UART
+#  CFLAGS += -DUBX_DECODE #To enable uBlox GPS decoding
 
 ifeq ($(PLATFORM), CF1)
 REV               ?= F

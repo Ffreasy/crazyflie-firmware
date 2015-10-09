@@ -37,9 +37,15 @@
 #define NVIC_I2C_PRI          3
 #define NVIC_TRACE_TIM_PRI    4
 
+<<<<<<< HEAD
 // Priorities for Crazyflie 2.0
 #define NVIC_UART_PRI         6
 #define NVIC_RADIO_PRI        11
+=======
+#define NVIC_I2C_PRI          5
+#define NVIC_TRACE_TIM_PRI    7
+#define NVIC_UART_PRI         11
+>>>>>>> origin/gps_ublox_dev
 #define NVIC_ADC_PRI          12
 
 #endif /* NVIC_CONF_H_ */

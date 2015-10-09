@@ -44,6 +44,11 @@
 #include "nvicconf.h"
 #include "config.h"
 
+#include "led.h"
+#include "ledseq.h"
+#include "ubx.h"
+#include "log.h"
+
 #define UART_DATA_TIMEOUT_MS 1000
 #define UART_DATA_TIMEOUT_TICKS (UART_DATA_TIMEOUT_MS / portTICK_RATE_MS)
 #define CRTP_START_BYTE 0xAA
@@ -119,7 +124,7 @@ void uartInit(void)
   USART_InitStructure.USART_BaudRate            = 2000000;
   USART_InitStructure.USART_Mode                = USART_Mode_Tx;
 #else
-  USART_InitStructure.USART_BaudRate            = 115200;
+  USART_InitStructure.USART_BaudRate            = 9600;
   USART_InitStructure.USART_Mode                = USART_Mode_Rx | USART_Mode_Tx;
 #endif
   USART_InitStructure.USART_WordLength          = USART_WordLength_8b;
@@ -133,7 +138,7 @@ void uartInit(void)
 #else
   // Configure Tx buffer empty interrupt
   NVIC_InitStructure.NVIC_IRQChannel = USART3_IRQn;
-  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+  NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_UART_PRI;
   NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
   NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
   NVIC_Init(&NVIC_InitStructure);
@@ -143,7 +148,7 @@ void uartInit(void)
   vSemaphoreCreateBinary(waitUntilSendDone);
 
   xTaskCreate(uartRxTask, (const signed char * const)"UART-Rx",
-              configMINIMAL_STACK_SIZE, NULL, /*priority*/2, NULL);
+              configMINIMAL_STACK_SIZE, NULL, /*priority*/1, NULL);
 
   packetDelivery = xQueueCreate(2, sizeof(CRTPPacket));
   uartDataDelivery = xQueueCreate(1024, sizeof(uint8_t));
@@ -159,6 +164,8 @@ bool uartTest(void)
   return isInit;
 }
 
+
+#ifdef CRTP_UART_RX_TASK
 void uartRxTask(void *param)
 {
   enum {waitForFirstStart, waitForSecondStart,
@@ -231,6 +238,126 @@ void uartRxTask(void *param)
     }
   }
 }
+#elif defined(UBX_DECODE)
+
+static char uartGetc() {
+  char c;
+  xQueueReceive(uartDataDelivery, &c, portMAX_DELAY);
+  return c;
+}
+
+static void uartRead(void *buffer, int length)
+{
+  int i;
+  
+  for (i=0; i<length; i++)
+  {
+    ((char*)buffer)[i] = uartGetc();
+  }
+}
+
+static void uartReceiveUbx(struct ubx_message* msg, int maxPayload) {
+    bool received = false;
+    uint8_t c;
+    
+    while (!received)
+    {
+        if ((c = uartGetc()) != 0xb5)
+            continue;
+        if ((uint8_t)uartGetc() != 0x62)
+            continue;
+        
+        msg->class = uartGetc();
+        msg->id = uartGetc();
+        uartRead(&msg->len, 2);
+        
+        if(msg->len > maxPayload)
+          continue;
+        
+        uartRead(msg->payload, msg->len);
+        msg->ck_a = uartGetc();
+        msg->ck_b = uartGetc();
+        
+        received = true;
+    }
+}
+
+static uint8_t gps_fixType;
+static int32_t gps_lat;
+static int32_t gps_lon;
+static int32_t gps_hMSL;
+static uint32_t gps_hAcc;
+static int32_t gps_gSpeed;
+static int32_t gps_heading;
+
+
+
+void uartRxTask(void *param)
+{
+  const char raw_0_setserial[] = {0xB5, 0x62, 0x06, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0xD0, 0x08, 0x00, 0x00, 0x80, 0x25, 0x00, 0x00, 0x07, 0x00, 0x01, 0x00, 0x00};
+  const char raw_1_enpvt[] = {0xB5, 0x62, 0x06, 0x01, 0x08, 0x00, 0x01, 0x07, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x18, 0xE1};
+  struct ubx_message msg;
+  char payload[100];
+  
+  msg.payload = payload;
+
+  vTaskDelay(2000);
+
+  uartSendData(sizeof(raw_0_setserial), (uint8_t*)raw_0_setserial);
+  vTaskDelay(1000);
+
+  uartSendData(sizeof(raw_1_enpvt), (uint8_t*)raw_1_enpvt);
+
+  while(1)
+  {
+    uartReceiveUbx(&msg, 100);
+    
+    if (msg.class_id == NAV_PVT) {
+      gps_fixType = msg.nav_pvt->fixType;
+      gps_lat = msg.nav_pvt->lat;
+      gps_lon = msg.nav_pvt->lon;
+      gps_hMSL = msg.nav_pvt->hMSL;
+      gps_hAcc = msg.nav_pvt->hAcc;
+      gps_gSpeed = msg.nav_pvt->gSpeed;
+      gps_heading = msg.nav_pvt->heading;
+    }
+    
+    ledseqRun(LED_GREEN, seq_linkup);
+    
+    
+  }
+}
+
+LOG_GROUP_START(gps)
+LOG_ADD(LOG_UINT8, fixType, &gps_fixType)
+LOG_ADD(LOG_INT32, lat, &gps_lat)
+LOG_ADD(LOG_INT32, lon, &gps_lon)
+LOG_ADD(LOG_INT32, hMSL, &gps_hMSL)
+LOG_ADD(LOG_UINT32, hAcc, &gps_hAcc)
+LOG_ADD(LOG_INT32, gSpeed, &gps_gSpeed)
+LOG_ADD(LOG_INT32, heading, &gps_heading)
+LOG_GROUP_STOP(gps)
+
+#else
+void uartRxTask(void *param)
+{
+  uint8_t c;
+
+  vTaskDelay(2000);
+
+  while(1)
+  {
+    if (xQueueReceive(uartDataDelivery, &c, portMAX_DELAY) == pdTRUE)
+    {
+      if (crtpIsConnected())
+      {
+        consolePutchar(c);
+      }
+    }
+  }
+}
+#endif
+
 
 static int uartReceiveCRTPPacket(CRTPPacket *p)
 {
@@ -266,6 +393,7 @@ void uartIsr(void)
     }
   }
   USART_ClearITPendingBit(UART_TYPE, USART_IT_TXE);
+
   if (USART_GetITStatus(UART_TYPE, USART_IT_RXNE))
   {
     rxDataInterrupt = USART_ReceiveData(UART_TYPE) & 0xFF;
