@@ -1,13 +1,13 @@
-/*
- *    ||          ____  _ __                           
- * +------+      / __ )(_) /_______________ _____  ___ 
+/**
+ *    ||          ____  _ __
+ * +------+      / __ )(_) /_______________ _____  ___
  * | 0xBC |     / __  / / __/ ___/ ___/ __ `/_  / / _ \
  * +------+    / /_/ / / /_/ /__/ /  / /_/ / / /_/  __/
  *  ||  ||    /_____/_/\__/\___/_/   \__,_/ /___/\___/
  *
- * Crazyflie control firmware
+ * Crazyflie Firmware
  *
- * Copyright (C) 2011-2012 Bitcraze AB
+ * Copyright (C) Bitcraze AB
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,14 +21,24 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- * exptest.c - Testing of expansion port.
+ * @file watchdog.h - Hardware watchdog
+ *
  */
+#ifndef WATCHDOG_H_
+#define WATCHDOG_H_
 
-#ifndef EXPTEST_H_
-#define EXPTEST_H_
+#include <stdbool.h>
+#include "stm32fxxx.h"
 
-#include <stdint.h>
+#define WATCHDOG_CLOCK_FRQ 1024
+#define WATCHDOG_TIMEOUT_MS 100
+#define WATCHDOG_RESET_PERIOD_MS 80
+#define WATCHDOG_TIMEOUT_CYCLES ((WATCHDOG_CLOCK_FRQ * WATCHDOG_TIMEOUT_MS) / 1000)
 
-bool exptestRun(void);
 
-#endif
+void watchdogInit(void);
+bool watchdogNormalStartTest(void);
+#define watchdogReset() (IWDG_ReloadCounter())
+
+#endif // WATCHDOG_H_
+
